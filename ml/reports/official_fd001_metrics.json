@@ -1,0 +1,8 @@
+{
+  "model": "RF_B",
+  "dataset": "NASA C-MAPSS FD001",
+  "test_engines": 100,
+  "mae": 17.768457436542455,
+  "rmse": 25.157433982439695,
+  "bias": 9.563356966897214
+}

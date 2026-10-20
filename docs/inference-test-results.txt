@@ -1,0 +1,16 @@
+python : test_duplicate_cycle_rejected (test_inference.TestModelInference.test_duplicate_cycle_rejected) ... ok
+At line:1 char:1
++ python -m unittest discover -s tests/ml -p "test_inference.py" -v 2>& ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_duplicate_...ejected) ... ok:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+test_future_data_independence (test_inference.TestModelInference.test_future_data_independence) ... ok
+test_missing_sensor_rejected (test_inference.TestModelInference.test_missing_sensor_rejected) ... ok
+test_non_consecutive_cycles_rejected (test_inference.TestModelInference.test_non_consecutive_cycles_rejected) ... ok
+test_prediction_works (test_inference.TestModelInference.test_prediction_works) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 5.095s
+
+OK
