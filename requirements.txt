@@ -5,3 +5,10 @@ seaborn==0.13.2
 scikit-learn==1.9.1
 jupyterlab==4.6.4
 ipykernel==7.4.0
+joblib==1.6.0
+xgboost==3.4.1
+shap==0.54.1
+fastapi==0.153.0
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+ipywidgets==8.1.9

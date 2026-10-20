@@ -7,6 +7,14 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+
+from services.inference_api.fleet import (
+    router as fleet_router
+)
+
+from services.inference_api.analytics import (
+    router as analytics_router
+)
 # Locate the project and ML package
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "ml" / "src"))
@@ -77,8 +85,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
-
-
+app.include_router(analytics_router)
+app.include_router(fleet_router)
 @app.get("/")
 def home():
     return {
