@@ -2,44 +2,66 @@
 
 ### AI-Powered Predictive Maintenance & Remaining Useful Life Prediction
 
-AeroGuard AI is an end-to-end **machine learning + web application** that estimates the **Remaining Useful Life (RUL)** of simulated turbofan engines using the **NASA C-MAPSS FD001** dataset. It combines an experimentally evaluated Random Forest regression model, a **FastAPI inference service**, and a **React dashboard** for prediction, analytics, and engine-history exploration.
+AeroGuard AI is a **machine learning + full-stack web application** that estimates the **Remaining Useful Life (RUL)** of simulated turbofan engines using the **NASA C-MAPSS FD001** dataset. It combines an experimentally evaluated Random Forest model, a **Python FastAPI inference service**, a **Node.js/Express API**, **MongoDB Atlas** for prediction history, and a **React dashboard** for interactive exploration.
 
-> **Research / educational demonstration.** NASA C-MAPSS contains simulated data. This system is **not certified or validated for actual aircraft maintenance decisions**. The model sometimes overestimates RUL.
+> **Research and educational demonstration only.** NASA C-MAPSS data is simulated. AeroGuard AI is **not certified or validated for real aircraft maintenance decisions**. Predictions can overestimate remaining useful life.
 
 ## Features
 
-- **RUL prediction:** Upload FD001-style whitespace-separated `.txt` or header-based `.csv` sensor history, select an engine, and request an estimate in operating cycles.
-- **Fleet explorer:** Browse 100 simulated FD001 test engines, search by engine ID, inspect historical sensor readings, and predict RUL for a selected engine.
-- **Model analytics:** Interactive actual-vs-predicted charts, signed-error visualization, lifecycle validation results, and global SHAP feature importance.
-- **REST API:** Endpoints for health checks, model metadata, inference, analytics, engine listing, and sensor history, with interactive Swagger documentation.
-- **Validation:** Group-aware development validation, official NASA FD001 test benchmark, model-inference tests, and API tests.
+- **RUL prediction from a file:** Upload FD001-format `.txt` or header-based `.csv` sensor data, select one engine, and obtain a model estimate. This upload workflow currently calls FastAPI directly; its results **are not automatically saved to MongoDB**.
+- **Engine fleet explorer:** Browse and search the **100 simulated FD001 test engines**, select an engine, and inspect recorded sensor measurements in an interactive chart.
+- **Persistent fleet predictions:** Predict RUL for a selected fleet engine through **React → Express → FastAPI**, with the result saved to **MongoDB Atlas**.
+- **Prediction history:** View up to **20 recent saved fleet predictions**, including engine ID, last observed cycle, estimated RUL, model version, and timestamp.
+- **Model analytics:** Inspect official-test actual-versus-predicted results, prediction errors, retrospective lifecycle validation, and global SHAP feature importance.
+- **REST APIs:** Explore the FastAPI inference endpoints via Swagger and use Express endpoints for persistent prediction records.
+- **Validation:** Engine-grouped development validation, official NASA FD001 test evaluation, model inference tests, and FastAPI tests.
 
-## Tech Stack
+## System Architecture
+
+```text
+                         React + Vite (port 5173)
+                          /                 \
+       /api/fleet, /api/analytics,        /api/predictions
+       /api/predict/rul, /api/health             |
+                    |                          v
+                    v                  Express.js (port 5000)
+           FastAPI (port 8000)             |            |
+                    ^                      |            v
+                    |                      |       MongoDB Atlas
+                    +----------------------+    (aeroguard_ai)
+                       Engine history + RUL
+                       inference requests
+```
+
+For a **fleet prediction**, React sends the engine ID to Express. Express requests the corresponding observed history from FastAPI, asks FastAPI to run the trained RF_B model, saves the returned estimate in MongoDB, and sends the stored result back to React. The history table reads those records from Express. The separate uploaded-file prediction workflow still talks directly to FastAPI.
+
+### Technology Stack
 
 | Layer | Technologies |
 | --- | --- |
-| ML / data | Python, NumPy, Pandas, scikit-learn, XGBoost, SHAP |
-| Visualization / experiments | Matplotlib, Seaborn, Jupyter |
-| ML serving | FastAPI, Pydantic, Uvicorn |
+| Machine learning / data | Python, NumPy, Pandas, scikit-learn, XGBoost, SHAP |
+| Experiments / visualization | Jupyter, Matplotlib, Seaborn |
+| ML inference service | FastAPI, Pydantic, Uvicorn |
+| Application API | Node.js, Express.js |
+| Persistence | MongoDB Atlas, Mongoose |
 | Frontend | React, Vite, Tailwind CSS v4, Recharts, Lucide React, Papa Parse |
-| Testing | Python `unittest`, FastAPI `TestClient`, HTTPX, Vite build |
-| Planned persistence | Express.js, Node.js, MongoDB — **not implemented yet** |
+| Testing / verification | Python `unittest`, FastAPI `TestClient`, HTTPX, Vite production build, manual end-to-end checks |
 
 ## Dataset
 
-The project uses **NASA C-MAPSS FD001** (one operating condition and one fault mode). The local FD001 files are:
+The project uses **NASA C-MAPSS FD001** (one operating condition and one fault mode):
 
 | File | Purpose |
 | --- | --- |
-| `train_FD001.txt` | Complete engine histories used for training (100 engines; 20,631 records) |
-| `test_FD001.txt` | Partial observed histories for independent evaluation/demo (100 engines; 13,096 records) |
-| `RUL_FD001.txt` | Actual RUL at the last observed cycle for each official test engine |
+| `train_FD001.txt` | Complete training histories: **100 engines, 20,631 records** |
+| `test_FD001.txt` | Partial test histories: **100 engines, 13,096 records** |
+| `RUL_FD001.txt` | Official actual RUL labels at each test engine's last observed cycle |
 
-Each input record has **26 columns**: engine ID, operating cycle, three operating settings, and 21 sensors. The model uses **123 engineered input features**, derived from 15 variable sensors, cycle/operating information, and past-only rolling statistics and deltas.
+Each raw record has **26 columns**: engine ID, operating cycle, three operating settings, and 21 sensors. The trained model uses **123 engineered features**, including past-only rolling statistics and sensor deltas for 15 varying sensors.
 
-**Dataset source:** [NASA Prognostics Center of Excellence — data repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/).
+**Source:** [NASA Prognostics Center of Excellence — Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/)
 
-Raw and processed datasets are **not tracked in Git**. Download the NASA C-MAPSS dataset separately and place the FD001 files in:
+The raw datasets are **not committed to Git**. Download the dataset separately and put these files here:
 
 ```text
 data/raw/train_FD001.txt
@@ -47,75 +69,98 @@ data/raw/test_FD001.txt
 data/raw/RUL_FD001.txt
 ```
 
-The official test RUL labels are used **only for evaluation**; they are not passed to the inference API.
+Official test RUL labels are used for **evaluation**, not supplied as inputs to the prediction model. The fleet API exposes observed histories, not the official labels. The Analytics API uses evaluation results that contain actual labels for comparison charts.
 
-## Model & Evaluation
+## Model and Evaluation
 
-The project compared a mean baseline, Ridge Regression, Random Forest, and XGBoost. It used an engine-grouped train/validation split, retrospective partial-history snapshots, and 3-fold GroupKFold optimization on training engines. **RF_B**, a Random Forest regressor, was selected before final test evaluation.
+The experiments compared a mean baseline, Ridge Regression, Random Forest, and XGBoost. Development used engine-grouped train/validation data, retrospective partial-history snapshots, and 3-fold GroupKFold optimization. The selected **RF_B** model is a Random Forest regressor with:
 
-**Final RF_B parameters:** `n_estimators=160`, `max_depth=18`, `min_samples_leaf=5`, `max_features=0.8`, `random_state=42`.
+```python
+RandomForestRegressor(
+    n_estimators=160,
+    max_depth=18,
+    min_samples_leaf=5,
+    max_features=0.8,
+    random_state=42,
+    n_jobs=-1,
+)
+```
 
-### Official NASA FD001 test results
+### Official NASA FD001 Test Results
 
-These figures are computed for the **100 official test engines**, with one RUL prediction per engine at its last observed cycle.
+One prediction was evaluated per engine, using the engine's final observed test cycle (**100 official test engines**):
 
 | Metric | Result |
 | --- | ---: |
 | Mean Absolute Error (MAE) | **17.7685 cycles** |
 | Root Mean Squared Error (RMSE) | **25.1574 cycles** |
-| Mean signed error (prediction − actual) | **+9.5634 cycles** |
-| Engines with overestimated RUL | **69 / 100** |
-| Engines with underestimated RUL | **31 / 100** |
+| Mean signed error (predicted − actual) | **+9.5634 cycles** |
+| Overestimated RUL | **69 / 100 engines** |
+| Underestimated RUL | **31 / 100 engines** |
 
-**Interpretation:** The model has a noticeable tendency to overestimate remaining life. Some early-history predictions have large errors. The benchmark does **not** establish reliability for real-world maintenance.
+**Interpretation:** The model tends to **overestimate** remaining life. An early-history example is FD001 test Engine 1: its predicted RUL is approximately **192.38 cycles**, versus an official actual RUL of **112 cycles**. These results do not establish operational reliability.
 
-### Development-validation context
+### Development Validation
 
-On 60 retrospective snapshots (20 validation engines at 50%, 70%, and 90% of their known full lifetimes), optimized RF_B achieved **MAE 14.2934** and **RMSE 21.7156** cycles. Snapshot positions are determined retrospectively using true lifetimes and are **not** an online lifecycle detector. Those results should not be confused with the official independent test benchmark above.
+Across 60 retrospective snapshots (20 validation engines at 50%, 70%, and 90% of known full lifetimes), optimized RF_B achieved **MAE 14.2934** and **RMSE 21.7156** cycles. These retrospective lifecycle positions use known lifetime information and **are not an online lifecycle detector**. Do not confuse these scores with the official independent test results.
 
-### Evaluation visualizations
+### Explainability and Plots
 
 ![Official FD001 error analysis](ml/reports/figures/official_test_error_analysis.png)
 
 ![Global SHAP feature importance](ml/reports/figures/shap_global_importance.png)
 
-Global SHAP importance is calculated from **40 sampled training records**; importance explains the model's prediction behavior, not causal engine physics. Operating cycle is the most influential feature in that sample.
-
-For complete numeric evidence, see [`ml/reports/`](ml/reports/) and the experiment notebooks in [`notebooks/`](notebooks/).
+Global SHAP importance was calculated from **40 sampled training records**. It describes model behavior, not causal engine physics. Operating cycle was the strongest feature in that sample. See [`ml/reports/`](ml/reports/) and [`notebooks/`](notebooks/) for evaluation artifacts and experiments.
 
 ## Repository Structure
 
 ```text
 .
-├── data/                      # Raw/processed data placeholders; datasets ignored by Git
-├── docs/                      # Validation notes, feature names, test logs, environments
-├── frontend/                  # React + Vite + Tailwind dashboard
-│   └── src/components/        # RULPrediction, ModelAnalytics, EngineFleet
+├── backend/
+│   ├── src/
+│   │   ├── models/Prediction.js       # Mongoose prediction-history schema
+│   │   ├── routes/predictionRoutes.js  # Express prediction/history routes
+│   │   └── server.js                   # Express, MongoDB connection, health check
+│   ├── package.json
+│   └── package-lock.json
+├── data/                                # Dataset placeholders; raw data ignored
+├── docs/                                # Validation and environment records
+├── frontend/
+│   ├── src/components/                  # RULPrediction, ModelAnalytics,
+│   │                                    # EngineFleet, PredictionHistory
+│   ├── vite.config.js                   # FastAPI + Express development proxies
+│   └── package.json
 ├── ml/
-│   ├── artifacts/             # Local trained model, ignored by Git
-│   ├── reports/               # Results, CSVs, figures, metrics JSON
-│   └── src/aeroguard_ml/      # Loader, feature engineering, prediction
-├── notebooks/                 # EDA, training, tuning, holdout, testing, SHAP
-├── scripts/                   # Local API smoke test
-├── services/inference_api/    # FastAPI routes and server
-├── tests/api/                 # API tests
-├── tests/ml/                  # Model inference tests
-├── requirements.txt           # Direct Python dependencies
+│   ├── artifacts/                       # Local trained model; ignored by Git
+│   ├── reports/                         # Benchmark JSON/CSV files and figures
+│   └── src/aeroguard_ml/                # Data, features, prediction helpers
+├── notebooks/                           # Experiments, optimization, evaluation
+├── scripts/                             # Local API smoke checks
+├── services/inference_api/             # FastAPI inference/analytics/fleet routers
+├── tests/api/                           # FastAPI tests
+├── tests/ml/                            # ML inference tests
+├── requirements.txt
 └── README.md
 ```
 
 ## Getting Started (Windows / PowerShell)
 
-**Prerequisites:** Python 3.13, Node.js 24 (or a compatible supported LTS), npm, and the NASA FD001 data files listed above.
+### Prerequisites
 
-### 1. Clone the repository
+- Python 3.13 (or a compatible Python version with the required dependencies)
+- Node.js 24 and npm (or a compatible supported Node.js version)
+- MongoDB Atlas cluster, database user, and allowed client IP
+- NASA FD001 data files (see **Dataset**)
+- A locally generated model package (see below)
+
+### 1. Clone the Repository
 
 ```powershell
 git clone https://github.com/ehaab212/AeroGuard-AI-Predictive-Maintenance.git
 cd AeroGuard-AI-Predictive-Maintenance
 ```
 
-### 2. Set up Python dependencies
+### 2. Install Python Dependencies
 
 ```powershell
 python -m venv .venv
@@ -123,93 +168,163 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-> Keep `requirements.txt` updated with the project's direct runtime/analysis dependencies, including **joblib, XGBoost, SHAP, FastAPI, Uvicorn, and HTTPX**. A full environment snapshot is available in `docs/environment-packages.txt`; versions may vary by machine.
+Keep `requirements.txt` aligned with the project's direct dependencies, including joblib, XGBoost, SHAP, FastAPI, Uvicorn, and HTTPX. An environment snapshot is available in `docs/environment-packages.txt`.
 
-### 3. Prepare the saved ML model
+### 3. Prepare the Dataset and Trained Model
 
-The model file `ml/artifacts/aeroguard_rf_b_v1.joblib` is intentionally **excluded from Git**. To reproduce it, add the FD001 raw files and execute `notebooks/05_final_model_evaluation.ipynb` after preparing the training/features workflow. It saves the model package locally for FastAPI. Earlier experiment notebooks document preprocessing, feature selection, model comparisons and tuning.
+Copy the three FD001 files into `data/raw/`. The trained model is intentionally excluded from Git:
 
-**Do not load untrusted `.joblib` files:** Python model deserialization may execute code.
+```text
+ml/artifacts/aeroguard_rf_b_v1.joblib
+```
 
-### 4. Run FastAPI (terminal 1, repository root)
+To reproduce it, follow the preprocessing/training workflow in `notebooks/` and run `notebooks/05_final_model_evaluation.ipynb`. This saves the local model package used by FastAPI. **Only load trusted `.joblib` files:** deserializing an untrusted Python model can execute code.
+
+### 4. Configure MongoDB Atlas
+
+1. Resume your Atlas cluster if it is paused.
+2. Create a dedicated database user with **`readWrite` on `aeroguard_ai` only**; do not use an Atlas administrator account in the application.
+3. Allow your current public IP in Atlas Network Access.
+4. Create `backend/.env` with the following **template**:
+
+```dotenv
+PORT=5000
+MONGODB_URI=mongodb+srv://USERNAME:URL_ENCODED_PASSWORD@YOUR_CLUSTER.mongodb.net/aeroguard_ai?retryWrites=true&w=majority
+INFERENCE_API_URL=http://127.0.0.1:8000
+```
+
+Replace the placeholders privately. URL-encode reserved characters in the database password. **Never commit `backend/.env` or share a credential-bearing connection string.** MongoDB normally creates the `aeroguard_ai` database and `predictions` collection on the first successful insert.
+
+### 5. Start FastAPI — Terminal 1 (Repository Root)
 
 ```powershell
 python -m uvicorn services.inference_api.main:app --reload --reload-dir services --host 127.0.0.1 --port 8000
 ```
 
-API documentation: **http://127.0.0.1:8000/docs**
+Swagger documentation: **http://127.0.0.1:8000/docs**
 
-### 5. Run the React dashboard (terminal 2)
+### 6. Start Express + MongoDB — Terminal 2
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open the local address printed by Vite (usually **http://localhost:5173/**). The Vite development proxy forwards `/api/*` requests to FastAPI on port 8000. Both servers need to be running for model-backed features.
-
-### 6. Create a frontend production build
+From the repository root:
 
 ```powershell
-cd frontend
-npm run build
+npm --prefix backend install
+npm --prefix backend run dev
 ```
 
-The build outputs static assets to `frontend/dist/` (not committed). Building the frontend does not deploy the Python inference service.
+Express starts at **http://127.0.0.1:5000** after connecting to MongoDB. Verify its database health endpoint at **http://127.0.0.1:5000/api/health**. The development command uses Node's built-in `--watch` mode; Nodemon is not required.
 
-## API Endpoints
+### 7. Start React — Terminal 3
 
-| Method | Route | Description |
+From the repository root:
+
+```powershell
+npm --prefix frontend install
+npm --prefix frontend run dev
+```
+
+Open **http://localhost:5173/**.
+
+During local development, the Vite proxy routes `/api/predictions` to **Express (5000)** and other `/api/*` requests to **FastAPI (8000)**, removing the `/api` prefix for FastAPI. **All three services must be running** for saved fleet predictions. This Vite proxy is development-only; production hosting requires equivalent routing/configuration.
+
+### 8. Build the Frontend
+
+```powershell
+npm --prefix frontend run build
+```
+
+The static build is written to `frontend/dist/` (excluded from Git). Building React does **not** deploy the APIs, dataset, or model.
+
+## API Reference
+
+### FastAPI — `http://127.0.0.1:8000`
+
+| Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | API/model readiness |
-| `GET` | `/model/info` | Model version, feature count and metadata |
-| `POST` | `/predict/rul` | Estimate RUL from **one engine's ordered sensor history** |
-| `GET` | `/analytics/summary` | Official benchmark, SHAP and lifecycle charts data |
-| `GET` | `/fleet/engines` | Simulated FD001 test engine directory |
-| `GET` | `/fleet/engines/{engine_id}/history` | Raw observed sensor history for one engine |
+| `GET` | `/` | Inference service information |
+| `GET` | `/health` | ML service/model readiness |
+| `GET` | `/model/info` | Model version, features, metadata |
+| `POST` | `/predict/rul` | Predict RUL from one engine's observed sensor history |
+| `GET` | `/analytics/summary` | Official test metrics, predictions, SHAP and lifecycle data |
+| `GET` | `/fleet/engines` | List simulated FD001 test engines |
+| `GET` | `/fleet/engines/{engine_id}/history` | Raw observed sensor history for an engine |
 
-`POST /predict/rul` accepts a JSON object with a `records` array, where each record includes `engine_id`, `cycle`, `setting_1`–`setting_3`, and `sensor_1`–`sensor_21`. The current inference contract requires one engine, consecutive nonduplicate cycles, numeric finite inputs, and at most 500 records per request. Interactive schemas and examples are available via Swagger.
+`POST /predict/rul` expects `{"records": [...]}` with `engine_id`, `cycle`, `setting_1`–`setting_3`, and `sensor_1`–`sensor_21` for each record. Current validation enforces one engine, contiguous and nonduplicate cycles, finite numeric data, and no more than 500 records per request.
 
-The engine-history and analytics endpoints require the appropriate local raw/report files; they are **read-only** views over simulated data.
+### Express — `http://127.0.0.1:5000`
 
-## Tests
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | Application API welcome message |
+| `GET` | `/api/health` | Express and MongoDB connection status |
+| `POST` | `/api/predictions` | Look up an FD001 test engine, run FastAPI inference, save result to MongoDB |
+| `GET` | `/api/predictions` | Return up to 20 most recent saved predictions |
 
-Run from the repository root with the Python virtual environment active:
+**Example: save and retrieve a prediction from PowerShell:**
 
 ```powershell
-python -m unittest discover -s tests/ml -p "test_inference.py" -v
-python -m unittest discover -s tests/api -p "test_api.py" -v
+$body = @{ engine_id = 1 } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://127.0.0.1:5000/api/predictions' `
+  -Method POST -ContentType 'application/json' -Body $body
+
+Invoke-RestMethod 'http://127.0.0.1:5000/api/predictions'
 ```
 
-During local development, **5 inference tests and 8 API tests passed**. The initial API suite covers health, metadata, valid predictions, consistency with direct inference, and input validation. Analytics and fleet routes should receive dedicated automated tests as the project evolves.
+An example stored record includes `engineId`, `lastCycle`, `observedRecords`, `predictedRulCycles`, `modelVersion`, and automatically managed `createdAt`/`updatedAt` timestamps. The endpoint currently **only predicts engines present in the local FD001 test dataset**. It does not accept arbitrary sensor histories or save uploaded-file predictions.
 
-For a live HTTP smoke test, start FastAPI and run:
+## Testing and Verification
+
+From the repository root, with Python dependencies installed:
+
+```powershell
+python -m unittest discover -s tests/ml -p 'test_inference.py' -v
+python -m unittest discover -s tests/api -p 'test_api.py' -v
+```
+
+During local development, **5 ML inference tests and 8 FastAPI tests passed**. The API suite covers inference/model metadata and input validation, but does **not yet** fully cover Fleet, Analytics, or Express/MongoDB routes. Compatibility warnings from Starlette/scikit-learn may appear without failing these tests.
+
+For a live FastAPI smoke test:
 
 ```powershell
 python scripts/test_api_local.py
 ```
 
-## Current Status & Roadmap
+For backend syntax/security checks and a frontend production build:
 
-- [x] Dataset exploration, validation, engine-separated development splits
-- [x] Causal rolling-window feature engineering and model comparison
-- [x] Cross-validation optimization and final NASA FD001 evaluation
-- [x] SHAP explanation and prediction error analysis
-- [x] Local model package and FastAPI inference endpoints
-- [x] React overview, CSV/TXT RUL prediction, analytics, and fleet exploration
-- [x] Basic automated ML inference and API tests
-- [ ] Broader integration tests, production configuration and deployment
-- [ ] Persistent prediction records, Express.js / Node.js, and MongoDB
-- [ ] Authentication, observability and production hardening (if deployed)
+```powershell
+node --check backend/src/server.js
+node --check backend/src/routes/predictionRoutes.js
+node --check backend/src/models/Prediction.js
+npm --prefix backend audit
+npm --prefix frontend run build
+```
 
-## Limitations
+**Manually verified end-to-end:** React Fleet selection → Express POST → FastAPI inference → MongoDB save → React Prediction History display. FD001 test Engine 1 produces approximately **192.38 predicted cycles**. This is a functional integration check, **not** a claim that the prediction is accurate or safe for maintenance.
 
-- NASA FD001 is a simulated research dataset, **not live aircraft telemetry**.
-- The model is trained/evaluated on FD001 and has not been validated on other fault modes or real engines.
-- Positive mean bias and some large individual errors make operational use inappropriate.
-- Model binary and raw dataset are excluded from Git; a fresh clone needs local data and model reproduction.
-- Fleet browsing currently reads test data from local files; it is not a persisted operational fleet database.
+## Security and Limitations
+
+- **Research-only simulation:** No live aircraft telemetry, certified prognostics, maintenance authorization, or real-world safety validation.
+- **Dataset scope:** Trained/evaluated on FD001 only. The current upload parser may accept similarly shaped files from other subsets (such as FD003), but such predictions **are not validated** and should not be presented as FD001 benchmark results.
+- **Error/bias:** Official FD001 mean signed error is positive; individual predictions may substantially overestimate RUL.
+- **No automatic upload persistence:** Uploaded-file predictions go straight to FastAPI; **only fleet predictions sent through Express are stored**.
+- **Access control is not implemented:** The Express prediction endpoints do not currently require authentication or provide per-user record isolation. **Do not expose these endpoints publicly without adding authentication, rate limits, stricter CORS, and other production safeguards.**
+- **Local data/model dependencies:** The raw dataset and trained `.joblib` artifact are excluded from Git; fresh clones need explicit dataset/model provisioning. The current fleet source is a local NASA test file, **not** a persisted operational fleet.
+- **Deployment not completed:** The three-service system and MongoDB integration have been tested locally; there is not yet a published hosted demo.
+
+## Current Status and Roadmap
+
+- [x] NASA FD001 data validation, feature engineering, grouped model validation
+- [x] Random Forest / XGBoost comparisons and RF_B optimization
+- [x] Official NASA FD001 benchmark and SHAP explanations
+- [x] Local model package and FastAPI inference, analytics, and fleet routes
+- [x] React dashboard with file upload, model charts, and fleet sensor history
+- [x] Express.js + MongoDB Atlas connection and persistent fleet prediction records
+- [x] React Prediction History with saved records and refresh after new fleet predictions
+- [x] Basic inference/API tests and end-to-end local integration check
+- [ ] Search/filter/pagination enhancements for saved prediction history
+- [ ] Validated uploaded-file persistence and stricter dataset compatibility checks
+- [ ] Dedicated Express/Fleet/Analytics integration tests, authentication, and rate limiting
+- [ ] Production configuration, deployment, monitoring, and portfolio demo
 
 ## Author
 
